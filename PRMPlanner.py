@@ -6,9 +6,28 @@ from graph import Graph, Edge
 from search_classes import SearchNode, Path
 from utils import *
 from shapely.geometry import Point, LineString
-    
+
 class PRMPathPlanner():
+
+    """Plans path using PRM algorithm on a 2D environment.
+
+    """
     def initialise(self, environment, bounds, start_pose, goal_region, radius, resolution, isLazy):
+        """
+        Initialises the main parameters for the PRM based path planner.
+
+        Args:
+            environment (a yaml environment): Environment where the planner will run.
+            bounds ( (int int int int) ): min x, min y, max x, and max y coordinates of the bounds of the world.
+            radius (float): Radius of the object
+            resolution (int): Number of segments used to approximate a circle around a point
+            isLazy (bool): If true, graph is created and collisions are only detected after running A* to find the optimum path instead of during the creation of the graph.
+            goal_region: (Polygon): A polygon representing the region we want our object to reach.
+            start_pose: ( ( float float) ): Starting x and y coordinates of the object in question.
+
+        Returns:
+            None
+        """
         self.env = environment
         self.bounds = bounds
         self.radius = radius
@@ -16,18 +35,34 @@ class PRMPathPlanner():
         self.isLazy = isLazy
         self.goal_region = goal_region
         self.start_pose = start_pose
-        
+
     def path (self,environment, bounds, q_init_point, q_goal_region, radius, resolution, isLazy):
-        
+        """
+        Creates and returns a path along with the set of vertices and edges that make up the graph used in the PRM algorithm.
+
+        Args:
+            environment (a yaml environment): Environment where the planner will run.
+            bounds ( (int int int int) ): min x, min y, max x, and max y coordinates of the bounds of the world.
+            radius (float): Radius of the object
+            resolution (int): Number of segments used to approximate a circle around a point
+            isLazy (bool): If true, graph is created and collisions are only detected after running A* to find the optimum path instead of during the creation of the graph.
+            goal_region: (Polygon): A polygon representing the region we want our object to reach.
+            start_pose: ( ( float float) ): Starting x and y coordinates of the object in question.
+
+        Returns:
+            path (list<(int,int)>): A list of tuples/coordinates representing the nodes in a path from start to the goal region
+            self.V (set<(int,int)>): A set of Vertices (coordinates) of nodes in the tree
+            self.E (set<(int,int),(int,int)>): A set of Edges connecting one node to another node in the tree
+        """
         self.initialise(environment, bounds, q_init_point, q_goal_region, radius, resolution, isLazy)
-        
+
         x0, y0 = q_init_point
         x1, y1 = q_goal_region.centroid.coords[0]
         q_init = (x0, y0)
         q_goal = (x1, y1)
         V = set()
         E = set()
-        
+
         if q_init == q_goal:
             path = [q_init, q_goal]
             V.union([q_init, q_goall])
@@ -38,32 +73,26 @@ class PRMPathPlanner():
             E.union([(q_init, q_goal)])
         else:
             path, V, E = self.PRMSearch(self.bounds, q_init, self.radius, q_goal, isLazy)
-            
-        '''
-        if path != None:
-            print "path found"
-        else:
-            print path
-        '''
+
         return path, V, E
-    
+
     def PRMSearch(self, bounds, q_init, radius, q_goal, isLazy):
         '''print "starting roadmap construction"'''
         # number of nodes to put in the roadmap
         n = min(max(len(self.env.obstacles) *2, 500), 2000)
         # number of closest neighbours to examine for each configuration
         k = min(int(n/50),15)
-        
+
         # construct the probabilistic roadmap
         V,E = self.roadmapConstruction(bounds, radius, k, n, isLazy)
-        
+
         # k closest neighbours of start configuration q_init, from V, sorted by distance
         Nqinit = self.find_k_closest_neighbours(V, q_init, k)
         # k closest neighbours of goal configuration q_goal, from V, sorted by distance
         Nqgoal = self.find_k_closest_neighbours(V, q_goal, k)
         # V is the union of itself and Nqinit and Nqgoal
         V = V.union(Nqinit, Nqgoal)
-        
+
         # iterate through Nqinit and try to find the closest neighbour to q_init that has a collision free edge between them
         for qprime in Nqinit:
             if self.isEdgeCollisionFree(q_init, qprime, radius):
@@ -81,12 +110,12 @@ class PRMPathPlanner():
         if isLazy:
             ok_edges = set()
             attempt = 1
-            
+
             while True:
-                
+
                 path_found = True
                 path = self.findShortestPath(V, E, q_init, q_goal)
-                
+
                 if path == None:
                     if attempt == 5:
                         break
@@ -95,11 +124,11 @@ class PRMPathPlanner():
                     V, E = self.roadmapReconstruction(bounds, radius, k, n, isLazy, V, E, q_init, q_goal)
                     attempt += 1
                     continue
-                
+
                 for i in xrange(len(path)-1):
                     edge = (path[i], path[i+1])
                     reversed_edge = (path[i+1], path[i])
-                    
+
                     if edge not in ok_edges:
                         if not self.isEdgeCollisionFree(path[i], path[i+1], radius):
                             if edge in E:
@@ -112,8 +141,8 @@ class PRMPathPlanner():
                             ok_edges.add(reversed_edge)
                 if path_found:
                     break
-                
-                    
+
+
         else:
             for attempt in xrange(1,6):
                 '''print attempt'''
@@ -125,14 +154,14 @@ class PRMPathPlanner():
                     V, E = self.roadmapReconstruction(bounds, radius, k, n, isLazy, V, E, q_init, q_goal)
                 else:
                     break
-        
+
         # returns path: a list of tuples representing points along the shortest path.
         return path, V, E
-            
-        
-        
+
+
+
     def roadmapConstruction(self, bounds, radius, k, n, isLazy):
-        
+
         # Vertices in our roadmap
         V = set()
         # Edges in our roadmap
@@ -151,11 +180,11 @@ class PRMPathPlanner():
             q_edges = self.find_collision_free_edges(q, Nq, radius, E, isLazy)
             # E is the union of itself and the newly found edges
             E = E.union(q_edges)
-        
+
         # retuns V,E: the set of n Vertices and corresponding connected edges that form the probabilistic roadmap
         return V,E
-           
-        
+
+
     def roadmapReconstruction(self, bounds, radius, k, n, isLazy, V, E, q_init, q_goal):
         '''print "start finding n free points"'''
         V_new_points = set()
@@ -173,14 +202,14 @@ class PRMPathPlanner():
             q_edges = self.find_collision_free_edges(q, Nq, radius, E, isLazy)
             # E is the union of itself and the newly found edges
             E = E.union(q_edges)
-            
+
         # k closest neighbours of start configuration q_init, from V, sorted by distance
         Nqinit = self.find_k_closest_neighbours(V, q_init, k)
         # k closest neighbours of goal configuration q_goal, from V, sorted by distance
         Nqgoal = self.find_k_closest_neighbours(V, q_goal, k)
         # V is the union of itself and Nqinit and Nqgoal
         V = V.union(Nqinit, Nqgoal)
-        
+
         for qprime in Nqinit:
             #if (q_init, qprime) not in E and (qprime, q_init) not in E:
                 if self.isEdgeCollisionFree(q_init, qprime, radius):
@@ -192,10 +221,10 @@ class PRMPathPlanner():
                 if self.isEdgeCollisionFree(q_goal, qprime, radius):
                     E.add((q_goal, qprime))
                     break
-                
+
         return V,E
-        
-        
+
+
     def find_random_collision_free_configuration(self, bounds, radius):
         # continue until a point is found
         while True:
@@ -204,30 +233,30 @@ class PRMPathPlanner():
             # verify if it is collision free with all obstacles and whether it is within the bounds of the problem space
             if self.isPointCollisionFree(q, radius) and not self.isOutOfBounds(q, bounds, radius) :
                 return q
-    
-    
+
+
     def find_k_closest_neighbours(self, V, q, k):
         # convert V to a list so that we can index elements inside
         list_V = list(V)
-        
+
         # initialise list to store euclidian distance between every point v in V and q
         neighbour_distances = []
-        
+
         # calculate the distances and populate the list
         for v in list_V:
             neighbour_distances.append(self.euclidianDist(q, v))
-            
+
         # sort the neighbours_distances list and extract their position index in V
         sorting_indexes = np.argsort(neighbour_distances)
-        
+
         # extract k closest neighbours to q, by extracting the elements from V, with indexes in the 1:k+1 slots of sorting_indexes.
         # Note: We ignore the first index in sorting_indexes, because this will simply index the point q in V
         k_closest_neighbours = [list_V[sorting_indexes[i]] for i in range(1,k+1)]
-        
+
         # we return a set containing the k closest neighbours, so that the union can be taken with V
         return set(k_closest_neighbours)
 
-    
+
     # finds the set of all edges between q and its neighbours in Nq, that are collision free
     def find_collision_free_edges(self, q, Nq, radius, E, isLazy):
         # initialise set that will store all collision free edges
@@ -243,8 +272,8 @@ class PRMPathPlanner():
                         edges.add((q, neighbour))
         # return the set of edges so that it's union may be taken with E
         return edges
-        
-    
+
+
     # checks if the edge between two points in our configuration space have a collision free edge
     def isEdgeCollisionFree(self, q_init, qprime, radius):
         # generate a line between the two points using the shapely library
@@ -259,14 +288,14 @@ class PRMPathPlanner():
         # terminate true if no intersection exists
         return True
 
-    
+
 
     def findShortestPath(self, V, E, start_state, goal_state):
         graph = self.generateGraph(V,E)
         problem = GraphSearchProblem(graph, start_state, goal_state)
         return self.astar_search(problem, self.heuristic_to_goal)
-    
-    
+
+
     def generateGraph(self, V, E):
         graph = Graph()
         for edge in E:
@@ -277,12 +306,12 @@ class PRMPathPlanner():
         graph.set_node_positions(vertex_locations_dictionary)
         return graph
 
-    
+
     def astar_search(self, problem, h):
         cost_func = lambda x: x.cost
         f = lambda x: cost_func(x) + h(x, problem.goal)
         return self.best_first_search(problem, f)
-    
+
     def best_first_search(self, problem, f):
         queue = PriorityQueue(f=f)
         queue.append(SearchNode(problem.start))
@@ -292,13 +321,13 @@ class PRMPathPlanner():
         while queue:
             current_node = queue.pop()
             expanded.add(current_node.state)
-            
+
             if(current_node.state == problem.goal):
                 final_path = Path(current_node).path
                 return final_path
-            
+
             expanded_sn = problem.expand_node(current_node)
-            
+
             for sn in expanded_sn:
                 if(sn.state not in expanded):
                     if sn in queue:
@@ -311,18 +340,18 @@ class PRMPathPlanner():
                 max_queue = len(queue)
         # If we get to here, no solution has been found.
         return None
-    
-    
+
+
     def heuristic_to_goal(self, search_node, goal_state):
         return self.euclidianDist(search_node.state, goal_state)
-        
+
     # find a random point within the configuration space
     # Note: it finds an actual point and not a buffered point that represents the phsicality of our object
     def get_random_point(self, bounds):
         x = bounds[0] + random.random()*(bounds[2]-bounds[0])
         y = bounds[1] + random.random()*(bounds[3]-bounds[1])
         return (x, y)
-        
+
     # check if configuration point q is collision free with all obstacles in the environment
     def isPointCollisionFree(self, q, radius):
         # buffer the point using the shapely class to check if the physical representation of q intersects any obstacles
@@ -334,8 +363,8 @@ class PRMPathPlanner():
                 return False
         # if no obstacle contains q, then terminate true
         return True
-    
-    
+
+
     # check if configuration point q is out of bounds
     def isOutOfBounds(self, q, bounds, radius):
         # left boundary check
@@ -352,12 +381,12 @@ class PRMPathPlanner():
             return True
         # if all checks fail, then ball q wih given radius is within the boundary
         return False
-    
+
     # calculate the euclidian distance between two configuration points q1, q2
     def euclidianDist(self, q1, q2):
         return math.sqrt((q2[0]-q1[0])**2 + (q2[1]-q1[1])**2)
-    
-    
+
+
 class GraphSearchProblem(object):
     def __init__(self, graph, start, goal):
         self.graph = graph
@@ -372,4 +401,4 @@ class GraphSearchProblem(object):
         outgoing_edges = self.graph.node_edges(current_node)
         expanded_sn = [SearchNode(edge.target, search_node, current_cost + edge.weight) for edge in outgoing_edges ]
         return expanded_sn
-    
+
